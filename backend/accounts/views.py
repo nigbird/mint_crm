@@ -59,12 +59,17 @@ def profile_view(request):
 class UserListView(generics.ListCreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
+    
     
     def get_queryset(self):
-        if self.request.user.role in ['admin', 'lawyer']:
+        user = self.request.user
+        if not user.is_authenticated:
             return User.objects.all()
-        return User.objects.filter(id=self.request.user.id)
+        if hasattr(user, 'role') and user.role in ['admin', 'lawyer']:
+            return User.objects.all()
+        return User.objects.filter(id=user.id)
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.all()

@@ -1,4 +1,54 @@
+interface AuthUser {
+  id: number | string;
+  name: string;
+  email?: string;
+  // Add other fields as needed
+}
 "use client"
+
+// TypeScript interfaces
+interface Contact {
+  id: number | string;
+  name: string;
+  company?: string;
+  email?: string;
+}
+
+interface Case {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  assignee: { name: string; id: string };
+  contact: { name: string; company: string; email: string };
+  created: string;
+  updated: string;
+  category: string;
+  responses: Array<{
+    id: number;
+    author: string;
+    message: string;
+    timestamp: string;
+    type: string;
+  }>;
+}
+
+interface NewCase {
+  case_number: string;
+  title: string;
+  description: string;
+  case_type: string;
+  status: string;
+  priority: string;
+  client: string;
+  assigned_lawyer: string;
+  team_members: string[];
+  court: string;
+  judge: string;
+  opposing_counsel: string;
+  statute_of_limitations: string;
+}
 
 import { useState } from "react"
 import { Plus, Search, Filter, MoreHorizontal, AlertTriangle, CheckCircle, FileText, Send, User } from "lucide-react"
@@ -74,38 +124,136 @@ const users = [
 ]
 
 export default function CaseManagement() {
-  const [selectedCase, setSelectedCase] = useState(null)
-  const [newCaseOpen, setNewCaseOpen] = useState(false)
-  const [responseText, setResponseText] = useState("")
-  const [newCase, setNewCase] = useState({
+  const [selectedCase, setSelectedCase] = useState<Case | null>(null)
+  const [newCaseOpen, setNewCaseOpen] = useState<boolean>(false)
+  const [responseText, setResponseText] = useState<string>("")
+  const [newCase, setNewCase] = useState<NewCase>({
+    case_number: "", // required, unique
     title: "",
     description: "",
-    priority: "Medium",
-    category: "General",
-    contactEmail: "",
-    assignee: "",
+    case_type: "other", // must match choices
+    status: "open", // default
+    priority: "medium", // must match choices
+    client: "", // Contact ID
+    assigned_lawyer: "", // Contact ID (from contacts API)
+    team_members: [], // List of User IDs
+    court: "",
+    judge: "",
+    opposing_counsel: "",
+    statute_of_limitations: "", // date string
   })
-
-  const handleCreateCase = () => {
-    // Implementation for creating new case
-    console.log("Creating case:", newCase)
-    setNewCaseOpen(false)
-    setNewCase({
-      title: "",
-      description: "",
-      priority: "Medium",
-      category: "General",
-      contactEmail: "",
-      assignee: "",
-    })
-    toast({
-      title: "Case Created",
-      description: `Case "${newCase.title}" has been registered.`,
-    })
-    triggerInAppNotification(`New case created: ${newCase.title} (Priority: ${newCase.priority})`)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [authUsers, setAuthUsers] = useState<AuthUser[]>([])
+  // Fetch auth users for assigned lawyer dropdown
+  const fetchAuthUsers = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/users/", {
+        credentials: "include"
+      })
+      if (!response.ok) throw new Error("Failed to fetch users")
+      const data = await response.json()
+      console.log("Fetched users from /api/users/:", data)
+      let usersList: AuthUser[] = []
+      if (Array.isArray(data)) {
+        usersList = data
+      } else if (data && Array.isArray(data.results)) {
+        usersList = data.results
+      } else {
+        toast({
+          title: "No Users Returned",
+          description: "The /api/users/ endpoint did not return a user list. Check your backend.",
+          variant: "destructive",
+        })
+      }
+      setAuthUsers(usersList)
+    } catch (error) {
+      toast({
+        title: "Error Fetching Users",
+        description: error instanceof Error ? error.message : "Could not fetch users.",
+        variant: "destructive",
+      })
+    }
+  }
+  // Fetch contacts from backend when dialog opens
+  const fetchContacts = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/contacts/")
+      if (!response.ok) throw new Error("Failed to fetch contacts")
+      const data = await response.json()
+      setContacts(data)
+    } catch (error) {
+      toast({
+        title: "Error Fetching Contacts",
+        description: error instanceof Error ? error.message : "Could not fetch contacts.",
+        variant: "destructive",
+      })
+    }
+  }
+  // Open dialog and fetch contacts and users
+  const handleOpenChange = (open: boolean) => {
+    setNewCaseOpen(open)
+    if (open) {
+      fetchContacts()
+      fetchAuthUsers()
+    }
   }
 
-  const handleAssignCase = (caseId, userId) => {
+  const handleCreateCase = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/cases/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newCase),
+      })
+      if (!response.ok) {
+        let errorMsg = "Failed to create case."
+        try {
+          const errorData = await response.json()
+          errorMsg = JSON.stringify(errorData)
+        } catch (e) {}
+        toast({
+          title: "Error Creating Case",
+          description: errorMsg,
+          variant: "destructive",
+        })
+        return
+      }
+      const createdCase = await response.json()
+      setNewCaseOpen(false)
+      setNewCase({
+        case_number: "",
+        title: "",
+        description: "",
+        case_type: "other",
+        status: "open",
+        priority: "medium",
+        client: "",
+        assigned_lawyer: "",
+        team_members: [],
+        court: "",
+        judge: "",
+        opposing_counsel: "",
+        statute_of_limitations: "",
+      })
+      toast({
+        title: "Case Created",
+        description: `Case "${createdCase.title}" has been registered.`,
+      })
+      triggerInAppNotification(`New case created: ${createdCase.title} (Priority: ${createdCase.priority})`)
+    } catch (error) {
+      let msg = "Could not connect to the server."
+      if (error instanceof Error) msg = error.message
+      toast({
+        title: "Network Error",
+        description: msg,
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleAssignCase = (caseId: string, userId: string) => {
     // Implementation for assigning case
     console.log("Assigning case", caseId, "to user", userId)
     toast({
@@ -116,7 +264,7 @@ export default function CaseManagement() {
     triggerInAppNotification(`Case ${caseId} reassigned to ${assignedUser}.`)
   }
 
-  const handleEscalateCase = (caseId) => {
+  const handleEscalateCase = (caseId: string) => {
     // Implementation for escalating case
     console.log("Escalating case", caseId)
     toast({
@@ -127,7 +275,7 @@ export default function CaseManagement() {
     triggerInAppNotification(`Case ${caseId} has been escalated!`)
   }
 
-  const handleAddResponse = (caseId) => {
+  const handleAddResponse = (caseId: string) => {
     // Implementation for adding response
     console.log("Adding response to case", caseId, ":", responseText)
     setResponseText("")
@@ -138,7 +286,7 @@ export default function CaseManagement() {
     triggerInAppNotification(`New response added to case ${caseId}.`)
   }
 
-  const handleCloseCase = (caseId) => {
+  const handleCloseCase = (caseId: string) => {
     // Implementation for closing case
     console.log("Closing case", caseId)
     toast({
@@ -148,7 +296,7 @@ export default function CaseManagement() {
     triggerInAppNotification(`Case ${caseId} has been closed.`)
   }
 
-  const getPriorityColor = (priority) => {
+  const getPriorityColor = (priority: string) => {
     switch (priority) {
       case "High":
         return "destructive"
@@ -161,7 +309,7 @@ export default function CaseManagement() {
     }
   }
 
-  const getStatusColor = (status) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case "Resolved":
         return "default"
@@ -185,7 +333,7 @@ export default function CaseManagement() {
           <p className="text-muted-foreground">Register, assign, and manage customer support cases</p>
         </div>
 
-        <Dialog open={newCaseOpen} onOpenChange={setNewCaseOpen}>
+        <Dialog open={newCaseOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -200,22 +348,21 @@ export default function CaseManagement() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
+                  <Label htmlFor="case_number">Case Number</Label>
+                  <Input
+                    id="case_number"
+                    value={newCase.case_number}
+                    onChange={(e) => setNewCase({ ...newCase, case_number: e.target.value })}
+                    placeholder="Unique case number (e.g. CASE-003)"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="title">Case Title</Label>
                   <Input
                     id="title"
                     value={newCase.title}
                     onChange={(e) => setNewCase({ ...newCase, title: e.target.value })}
                     placeholder="Brief description of the issue"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactEmail">Contact Email</Label>
-                  <Input
-                    id="contactEmail"
-                    type="email"
-                    value={newCase.contactEmail}
-                    onChange={(e) => setNewCase({ ...newCase, contactEmail: e.target.value })}
-                    placeholder="customer@company.com"
                   />
                 </div>
               </div>
@@ -242,48 +389,120 @@ export default function CaseManagement() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Low">Low</SelectItem>
-                      <SelectItem value="Medium">Medium</SelectItem>
-                      <SelectItem value="High">High</SelectItem>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
+                  <Label htmlFor="case_type">Case Type</Label>
                   <Select
-                    value={newCase.category}
-                    onValueChange={(value) => setNewCase({ ...newCase, category: value })}
+                    value={newCase.case_type}
+                    onValueChange={(value) => setNewCase({ ...newCase, case_type: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Technical">Technical</SelectItem>
-                      <SelectItem value="Configuration">Configuration</SelectItem>
-                      <SelectItem value="Access">Access</SelectItem>
-                      <SelectItem value="General">General</SelectItem>
+                      <SelectItem value="litigation">Litigation</SelectItem>
+                      <SelectItem value="corporate">Corporate</SelectItem>
+                      <SelectItem value="family">Family Law</SelectItem>
+                      <SelectItem value="criminal">Criminal</SelectItem>
+                      <SelectItem value="immigration">Immigration</SelectItem>
+                      <SelectItem value="real_estate">Real Estate</SelectItem>
+                      <SelectItem value="personal_injury">Personal Injury</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="assignee">Assign To</Label>
-                  <Select
-                    value={newCase.assignee}
-                    onValueChange={(value) => setNewCase({ ...newCase, assignee: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select user" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="client">Client (Contact ID)</Label>
+                  <Input
+                    id="client"
+                    value={newCase.client}
+                    onChange={(e) => setNewCase({ ...newCase, client: e.target.value })}
+                    placeholder="Contact ID (number)"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="assigned_lawyer">Assigned Lawyer (User)</Label>
+                  {authUsers.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No users found</div>
+                  ) : (
+                    <Select
+                      value={newCase.assigned_lawyer}
+                      onValueChange={(value) => setNewCase({ ...newCase, assigned_lawyer: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {authUsers.map((user: AuthUser) => (
+                          <SelectItem key={user.id} value={user.id.toString()}>
+                            {user.name} {user.email ? `(${user.email})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="team_members">Team Members (User IDs, comma separated)</Label>
+                  <Input
+                    id="team_members"
+                    value={newCase.team_members.join(",")}
+                    onChange={(e) => setNewCase({ ...newCase, team_members: e.target.value.split(",") as string[] })}
+                    placeholder="user1,user2"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="court">Court</Label>
+                  <Input
+                    id="court"
+                    value={newCase.court}
+                    onChange={(e) => setNewCase({ ...newCase, court: e.target.value })}
+                    placeholder="Court name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="judge">Judge</Label>
+                  <Input
+                    id="judge"
+                    value={newCase.judge}
+                    onChange={(e) => setNewCase({ ...newCase, judge: e.target.value })}
+                    placeholder="Judge name"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="opposing_counsel">Opposing Counsel</Label>
+                  <Input
+                    id="opposing_counsel"
+                    value={newCase.opposing_counsel}
+                    onChange={(e) => setNewCase({ ...newCase, opposing_counsel: e.target.value })}
+                    placeholder="Opposing counsel name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="statute_of_limitations">Statute of Limitations</Label>
+                  <Input
+                    id="statute_of_limitations"
+                    type="date"
+                    value={newCase.statute_of_limitations}
+                    onChange={(e) => setNewCase({ ...newCase, statute_of_limitations: e.target.value })}
+                  />
                 </div>
               </div>
 
